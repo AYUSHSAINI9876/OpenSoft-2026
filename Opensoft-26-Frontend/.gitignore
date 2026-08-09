@@ -13,6 +13,8 @@ dist-ssr
 *.local
 .env
 .env.*
+# ...but the template carries no secrets and must be committed.
+!.env.example
 
 # Editor directories and files
 .vscode/*

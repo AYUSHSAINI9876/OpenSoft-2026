@@ -105,70 +105,153 @@ Work through these in order. Each step states what correct behaviour looks like.
 
 ---
 
-## 3. Deploy the backend (do this first)
+## 3. Datastores — Postgres and Redis (NOT MongoDB)
+
+This project uses **PostgreSQL** (via `pgx/v5`, with 28 SQL migrations under
+`internal/db/migrations/sql/`) and **Redis** (event bus, pub/sub + streams).
+
+There is **no MongoDB**. `go.mongodb.org/mongo-driver` appears in `go.mod` only
+as an *indirect* transitive dependency — no code imports it. Provisioning a
+MongoDB cluster would be wasted effort and nothing would connect to it.
+
+| Need | Render | Alternative |
+|------|--------|-------------|
+| PostgreSQL 16 | Render PostgreSQL | Neon, Supabase |
+| Redis 7 | Render Key Value | Upstash |
+
+Migrations run **automatically at boot**. Note that a migration failure is
+logged as a warning and the server continues, so confirm you see
+`Database migrations checked` in the logs — not `Warning: migration failed`.
+
+---
+
+## 4. Deploy the backend to Render (do this first)
 
 The frontend is useless without a reachable API, so deploy the backend first and
 note its public HTTPS URL.
 
-Required environment variables:
+### 4.1 Create the datastores
+
+1. **New → Postgres.** Name it, pick a region, create. Copy the **Internal
+   Database URL** (starts `postgres://`). Internal avoids egress and needs no
+   SSL; if you use the *External* URL instead, append `?sslmode=require`.
+2. **New → Key Value** (Render's Redis). Same region as the database. Copy its
+   **Internal URL** (`redis://…`).
+
+Keep both in the **same region as the web service**, or every query pays a
+cross-region round trip.
+
+### 4.2 Create the web service
+
+**New → Web Service** → connect `AYUSHSAINI9876/OpenSoft-2026`, then:
+
+| Setting | Value |
+|---------|-------|
+| Language / Runtime | **Docker** |
+| Root Directory | `Opensoft-26-Backend` |
+| Dockerfile Path | `Opensoft-26-Backend/Dockerfile` |
+| Health Check Path | `/health` |
+
+The Docker build compiles the C++ matching engine with CMake before building
+the Go binary, so expect a slow first build (several minutes).
+
+### 4.3 Environment variables
 
 ```bash
 APP_ENV=production                 # makes insecure defaults fatal at boot
 JWT_SECRET=<openssl rand -base64 48>
-DB_URL=postgres://user:pass@host:5432/synthbull
-REDIS_URL=redis://host:6379/0
+DB_URL=<Internal Database URL from step 4.1>
+REDIS_URL=<Internal Key Value URL from step 4.1>
 CORS_ALLOWED_ORIGINS=https://<your-project>.vercel.app,https://*.vercel.app
 ```
 
-`CORS_ALLOWED_ORIGINS` is the one people forget. Localhost is always allowed, so
-a missing value works locally and fails only once deployed. The `https://*.vercel.app`
-entry covers Vercel's per-deployment preview URLs.
+Two things that catch people out:
+
+- **The variable is `DB_URL`, not `DATABASE_URL`.** Render's dashboard shows the
+  connection string under a heading that says "Database URL"; the app reads
+  `DB_URL`. Copy the value, not the name.
+- **`CORS_ALLOWED_ORIGINS` fails only in production.** Localhost is always
+  allowed, so an empty value works perfectly on your machine and blocks every
+  browser request once deployed. You will not have the Vercel URL yet — leave
+  this for now and set it in step 6.
+
+`PORT` is injected by Render and the server binds to it automatically.
 
 With `APP_ENV=production` the server refuses to start on a missing, placeholder,
 or under-32-character `JWT_SECRET`. That is deliberate — a predictable secret
 lets anyone forge a token for any account.
 
-Verify: `curl https://your-backend/health` returns 200.
+### 4.4 Verify
+
+```bash
+curl https://<your-service>.onrender.com/health     # expect 200
+```
+
+> **Render's free tier is a poor fit for this app.** Free web services sleep
+> after ~15 minutes idle, and this backend keeps the order book and simulation
+> state **in memory** — a sleep wipes open orders and drops every WebSocket.
+> Free Postgres instances also expire after 30 days. Use a paid instance for
+> anything you intend to show off.
 
 ---
 
-## 4. Deploy the frontend to Vercel
+## 5. Deploy the frontend to Vercel
 
 1. **Import the repo** and set **Root Directory** to `Opensoft-26-Frontend`.
    This matters — the repo root has no `package.json`, and the build fails
-   without it.
+   immediately without it.
 2. Framework preset **Vite** (auto-detected from `vercel.json`).
 3. Add the environment variable, for all environments:
 
    ```
-   VITE_API_BASE_URL = https://your-backend-host/api/v1
+   VITE_API_BASE_URL = https://<your-service>.onrender.com/api/v1
    ```
 
    It must be **https** (an http API on an https page is blocked as mixed
    content) and must include the `/api/v1` suffix. The WebSocket URL is derived
    automatically (`https` → `wss`).
-4. Deploy.
+4. Deploy, then copy the resulting `https://<project>.vercel.app` URL.
 
 `vercel.json` already handles SPA rewrites, immutable asset caching, and
 security headers — no dashboard configuration needed.
 
-### Post-deploy checks
+---
+
+## 6. Close the loop: CORS
+
+Go back to the Render service and set:
+
+```bash
+CORS_ALLOWED_ORIGINS=https://<project>.vercel.app,https://*.vercel.app
+```
+
+Save — Render redeploys automatically. This step is unavoidably last, because
+you cannot know the Vercel URL until step 5 is done.
+
+---
+
+## 7. Post-deploy verification
 
 ```bash
 curl -I https://<project>.vercel.app/portfolio   # 200, not 404 → rewrites work
+curl https://<service>.onrender.com/health       # 200
 ```
 
 Then open the site with the browser console visible:
 
 - A red `[Oak Capital] VITE_API_BASE_URL is not set…` means the env var is
-  missing — set it and **redeploy** (Vite inlines env vars at build time;
-  changing the variable alone does nothing until you rebuild).
-- A CORS error means the Vercel domain is missing from `CORS_ALLOWED_ORIGINS`.
-- Sign up, then confirm the WebSocket in the Network tab shows status 101.
+  missing — set it and **redeploy**. Vite inlines env vars *at build time*, so
+  changing the variable without rebuilding does nothing.
+- A CORS error means the Vercel domain is missing from `CORS_ALLOWED_ORIGINS`
+  (step 6).
+- Sign up for an account, then confirm the WebSocket in the Network tab shows
+  status **101**. If REST works but the socket fails, the API URL is reachable
+  but the host is not forwarding upgrade requests.
+- Walk the manual test script in §2.
 
 ---
 
-## 5. Known limitations
+## 8. Known limitations
 
 - **Password reset and account deletion require SMTP.** Without `SMTP_HOST` and
   friends, `/forgot-password` returns "email service not configured".

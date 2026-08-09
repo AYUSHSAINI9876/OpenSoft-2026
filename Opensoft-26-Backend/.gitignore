@@ -13,7 +13,10 @@
 .env.development.local
 .env.test.local
 # Build artifacts
-server
+# Anchored with a leading slash: an unanchored "server" also matched the
+# cmd/server/ source directory, which silently kept the server entrypoint out
+# of the repository.
+/server
 Matching-Engine/build/
 Matching-Engine/build-matching/
 Matching-Engine/build-*/
@@ -27,6 +30,6 @@ lib/
 *.dll
 *.exe
 
-# Project binaries
-mmbot
-server
+# Project binaries (anchored — see note above; these must not match cmd/*/)
+/mmbot
+/server
