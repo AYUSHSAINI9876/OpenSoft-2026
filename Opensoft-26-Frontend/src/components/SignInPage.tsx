@@ -1,15 +1,23 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Mail, Lock, ArrowRight, ArrowLeft } from 'lucide-react';
-import { login } from '../services/api';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { User, ArrowRight, ArrowLeft, Loader2 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from './ui/Toast';
+import PasswordField from './ui/PasswordField';
 import { formatAuthError } from '../utils/errorFormatter';
 
 const SignInPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { signIn } = useAuth();
+  const toast = useToast();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Set by ProtectedRoute when an unauthenticated user hit a gated page.
+  const redirectTo = (location.state as { from?: string } | null)?.from || '/portfolio';
 
   // Increasing line graph animation state
   const [chartData, setChartData] = useState(() => 
@@ -31,17 +39,25 @@ const SignInPage = () => {
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return; // guard against double-submit on slow networks
+    const trimmedUsername = username.trim();
+    if (!trimmedUsername || !password) {
+      setErrorMsg('Please enter both your username and password.');
+      return;
+    }
+
     setIsLoading(true);
     setErrorMsg('');
     try {
-      const res = await login(username, password);
+      const res = await signIn(trimmedUsername, password);
       if (res.success) {
-        navigate('/portfolio', { replace: true });
+        toast.success('Welcome back', `Signed in as ${trimmedUsername}.`);
+        navigate(redirectTo, { replace: true });
       } else {
         setErrorMsg(formatAuthError(res.error || 'Login failed'));
       }
     } catch (err: any) {
-      setErrorMsg(formatAuthError(err.message || 'An error occurred during login'));
+      setErrorMsg(formatAuthError(err?.message || 'An error occurred during login'));
     } finally {
       setIsLoading(false);
     }
@@ -182,25 +198,34 @@ const SignInPage = () => {
           <h2 className="text-2xl font-semibold mb-8">Sign in to your Oak Capital account</h2>
 
           {/* Form */}
-          <form onSubmit={handleSignIn} className="space-y-5">
+          <form onSubmit={handleSignIn} className="space-y-5" noValidate>
             {errorMsg && (
-              <div className="bg-red-500/10 border border-red-500/50 text-red-500 text-sm p-3 rounded-md">
+              <div
+                role="alert"
+                className="bg-red-500/10 border border-red-500/50 text-red-400 text-sm p-3 rounded-md"
+              >
                 {errorMsg}
               </div>
             )}
 
             {/* Username */}
             <div className="space-y-1.5">
-              <label className="text-[13px] font-medium text-gray-200">Username</label>
+              <label htmlFor="signin-username" className="text-[13px] font-medium text-gray-200">
+                Username
+              </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="h-4 w-4 text-gray-400" />
+                  <User className="h-4 w-4 text-gray-400" aria-hidden="true" />
                 </div>
                 <input
+                  id="signin-username"
+                  name="username"
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full bg-[#11141c] border border-white/10 rounded-md py-2 pl-9 pr-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  autoComplete="username"
+                  autoFocus
+                  className="w-full bg-[#11141c] border border-white/10 rounded-md py-2 pl-9 pr-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-[#00C076] focus:border-[#00C076] transition-colors"
                   placeholder="john_doe"
                   required
                 />
@@ -208,30 +233,21 @@ const SignInPage = () => {
             </div>
 
             {/* Password */}
-            <div className="space-y-1.5 pt-2">
-              <div className="flex items-center justify-between">
-                <label className="text-[13px] font-medium text-gray-200">Password</label>
-                <button
-                  type="button"
-                  onClick={() => navigate('/forgot-password')}
-                  className="text-[12px] text-blue-400 hover:text-blue-300 transition-colors"
-                >
-                  Forgot password?
-                </button>
-              </div>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-4 w-4 text-gray-400" />
-                </div>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-[#11141c] border border-white/10 rounded-md py-2 pl-9 pr-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                  placeholder="••••••••"
-                  required
-                />
-              </div>
+            <div className="pt-2">
+              <PasswordField
+                value={password}
+                onChange={setPassword}
+                autoComplete="current-password"
+                labelAction={
+                  <button
+                    type="button"
+                    onClick={() => navigate('/forgot-password')}
+                    className="text-[12px] text-blue-400 hover:text-blue-300 transition-colors"
+                  >
+                    Forgot password?
+                  </button>
+                }
+              />
             </div>
 
             {/* Submit Button */}
@@ -239,9 +255,14 @@ const SignInPage = () => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-gradient-to-r from-white to-[#00e68e] text-gray-900 hover:shadow-[0_0_20px_rgba(0,230,142,0.4)] font-semibold py-2.5 rounded-md transition-all flex items-center justify-center gap-2"
+                className="w-full bg-gradient-to-r from-white to-[#00e68e] text-gray-900 hover:shadow-[0_0_20px_rgba(0,230,142,0.4)] font-semibold py-2.5 rounded-md transition-all flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isLoading ? 'Signing in...' : (
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    Signing in…
+                  </>
+                ) : (
                   <>
                     Sign in <ArrowRight className="h-4 w-4" />
                   </>

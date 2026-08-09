@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Bell, ChevronLeft, Shield, UserCircle2, Zap, Key, Smartphone, QrCode, ChevronDown } from 'lucide-react'
 import AppNavbar from './AppNavbar'
+import { useAuth } from '../context/AuthContext'
 
 type Section = 'profile' | 'notifications' | 'security' | 'appearance' | 'trading' | null
 
@@ -442,7 +443,8 @@ function TradingPreferencesForm({
 }
 
 export default function SettingsPage() {
-  const username = localStorage.getItem('username') || 'Trader'
+  const { user } = useAuth()
+  const username = user?.username || 'Trader'
   const [activeSection, setActiveSection] = useState<Section>(null)
 
   // Unified persistent settings state

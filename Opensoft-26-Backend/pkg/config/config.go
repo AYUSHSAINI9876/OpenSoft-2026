@@ -2,10 +2,31 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
+
+// fallbackJWTSecret keeps local development frictionless. Anyone who reads this
+// repository can forge tokens signed with it, so production must override it.
+const fallbackJWTSecret = "synthbull_fallback_secret_change_me"
+
+// minJWTSecretLen is the shortest secret accepted in production. HS256 keys
+// below ~32 bytes are brute-forceable offline from a single captured token.
+const minJWTSecretLen = 32
+
+// isProduction reports whether the process is running in a deployed
+// environment, in which case insecure defaults become fatal instead of merely
+// noisy. Set APP_ENV=production (or GIN_MODE=release) when you deploy.
+func isProduction() bool {
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
+	if env == "production" || env == "prod" {
+		return true
+	}
+	return strings.ToLower(strings.TrimSpace(os.Getenv("GIN_MODE"))) == "release"
+}
 
 type Config struct {
 	DBURL     string
@@ -40,8 +61,25 @@ func LoadConfig() (*Config, error) {
 	}
 
 	jwtSecretStr := os.Getenv("JWT_SECRET")
-	if jwtSecretStr == "" {
-		jwtSecretStr = "synthbull_fallback_secret_change_me"
+	prod := isProduction()
+
+	switch {
+	case jwtSecretStr == "" || jwtSecretStr == fallbackJWTSecret:
+		if prod {
+			return nil, fmt.Errorf(
+				"JWT_SECRET is unset or still the built-in development value; " +
+					"generate a unique secret (e.g. `openssl rand -base64 48`) and set JWT_SECRET before starting in production")
+		}
+		jwtSecretStr = fallbackJWTSecret
+		log.Println("⚠️  JWT_SECRET not set — using the insecure development fallback. Never deploy with this.")
+
+	case len(jwtSecretStr) < minJWTSecretLen:
+		if prod {
+			return nil, fmt.Errorf(
+				"JWT_SECRET is only %d characters; use at least %d (e.g. `openssl rand -base64 48`)",
+				len(jwtSecretStr), minJWTSecretLen)
+		}
+		log.Printf("⚠️  JWT_SECRET is short (%d chars); use at least %d in production.", len(jwtSecretStr), minJWTSecretLen)
 	}
 
 	redisURL := os.Getenv("REDIS_URL")

@@ -1,3 +1,8 @@
+//go:build cgo
+
+// These tests exercise the CGO bridge's `Handle.h` field, which only exists in
+// cgo_bridge.go. Without this tag the package fails to compile under
+// CGO_ENABLED=0, where mock.go provides the engine instead.
 package engine
 
 import (

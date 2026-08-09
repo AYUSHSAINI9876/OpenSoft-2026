@@ -1,6 +1,50 @@
+import { clearSession, getToken, setSession } from './session'
+import { isTokenExpired } from '../utils/jwt'
+
 const _rawBase = (import.meta.env.VITE_API_BASE_URL as string) || '/api/v1'
 const BASE_URL = _rawBase.replace(/\/+$/, '')
 const AUTH_URL = `${BASE_URL}/auth`
+
+// A relative base only resolves through the Vite dev proxy. On a static host
+// (Vercel) it would silently resolve against the frontend's own domain and
+// every call would 404 — surface that at boot instead of at first click.
+if (import.meta.env.PROD && !/^https?:\/\//i.test(BASE_URL)) {
+  console.error(
+    '[Oak Capital] VITE_API_BASE_URL is not set to an absolute URL. ' +
+      'API calls will fail in production. Set it to your backend, e.g. ' +
+      'https://api.example.com/api/v1',
+  )
+} else if (import.meta.env.PROD && BASE_URL.startsWith('http://') && window.location.protocol === 'https:') {
+  console.error(
+    '[Oak Capital] VITE_API_BASE_URL uses http:// while the site is served over https. ' +
+      'Browsers block this as mixed content — use an https backend URL.',
+  )
+}
+
+/** Abort a request that the backend never answers, instead of hanging forever. */
+const REQUEST_TIMEOUT_MS = 20_000
+
+/**
+ * Notified whenever the server rejects our credentials, so the UI can surface
+ * "your session expired" instead of silently bouncing to the login screen.
+ */
+type UnauthorizedListener = () => void
+const unauthorizedListeners = new Set<UnauthorizedListener>()
+
+export const onUnauthorized = (listener: UnauthorizedListener): (() => void) => {
+  unauthorizedListeners.add(listener)
+  return () => {
+    unauthorizedListeners.delete(listener)
+  }
+}
+
+const handleUnauthorized = () => {
+  // Only fire once per session teardown: if the token is already gone another
+  // in-flight 401 beat us here and the listeners have run.
+  if (!getToken()) return
+  clearSession()
+  for (const listener of unauthorizedListeners) listener()
+}
 
 export type Trade = {
   price: number
@@ -34,23 +78,46 @@ export type SavedStrategySummary = {
 type ReqOptions = RequestInit & { auth?: boolean }
 
 const authHeaders = (): Record<string, string> => {
-  const token = localStorage.getItem('token')
+  const token = getToken()
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 const requestJSON = async <T>(url: string, options: ReqOptions = {}): Promise<ApiResponse<T>> => {
+  // Fail fast on an expired token: skip the round trip the server would reject
+  // anyway, and tear the session down so the router redirects immediately.
+  if (options.auth) {
+    const token = getToken()
+    if (!token || isTokenExpired(token)) {
+      handleUnauthorized()
+      return { success: false, error: 'Your session has expired. Please sign in again.', code: 'SESSION_EXPIRED' }
+    }
+  }
+
   const headers: Record<string, string> = {
     ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.auth ? authHeaders() : {}),
     ...(options.headers as Record<string, string> | undefined),
   }
 
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+
   let response: Response
   try {
-    response = await fetch(url, { ...options, headers })
-  } catch {
-    return { success: false, error: 'Network error while contacting backend' }
+    response = await fetch(url, { ...options, headers, signal: options.signal ?? controller.signal })
+  } catch (err) {
+    const aborted = err instanceof DOMException && err.name === 'AbortError'
+    return {
+      success: false,
+      error: aborted
+        ? 'The request timed out. Please check your connection and try again.'
+        : 'Network error while contacting backend',
+    }
+  } finally {
+    clearTimeout(timeoutId)
   }
+
+  if (response.status === 401 && options.auth) handleUnauthorized()
 
   let payload: unknown = null
   try {
@@ -91,8 +158,7 @@ export const login = async (username: string, password: string) => {
   })
   const token = result.data && (result.data as any).token
   if (result.success && token) {
-    localStorage.setItem('token', token)
-    localStorage.setItem('username', username)
+    setSession(token, username)
     return { success: true, data: { token } } as ApiResponse<{ token: string }>
   }
   return { success: false, error: result.error || result.message || 'Login failed' } as ApiResponse<{ token: string }>
@@ -105,21 +171,14 @@ export const register = async (username: string, email: string, password: string
   })
   const token = result.data && (result.data as any).token
   if (result.success && token) {
-    localStorage.setItem('token', token)
-    localStorage.setItem('username', username)
+    setSession(token, username)
     return { success: true, data: { token } } as ApiResponse<{ token: string }>
   }
   return { success: false, error: result.error || result.message || 'Registration failed' } as ApiResponse<{ token: string }>
 }
 
 export const logout = () => {
-  localStorage.removeItem('token')
-  localStorage.removeItem('username')
-  localStorage.removeItem('oak_capital_chart_interval')
-  localStorage.removeItem('oak_capital_secondary_chart_interval')
-  localStorage.removeItem('synthbull_chart_interval')
-  localStorage.removeItem('synthbull_secondary_chart_interval')
-  window.dispatchEvent(new Event('auth-change'))
+  clearSession()
 }
 
 export const requestPasswordReset = async (username: string, email: string) =>

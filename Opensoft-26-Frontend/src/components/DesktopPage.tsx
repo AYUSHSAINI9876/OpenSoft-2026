@@ -14,6 +14,7 @@ import {
 
 } from 'lucide-react';
 import Footer from './Footer';
+import { useAuth } from '../context/AuthContext';
 
 
 import adaniLogo from './logos/adani.png';
@@ -107,7 +108,7 @@ const AnimatedNumber = ({ end, prefix = '', suffix = '', duration = 2000 }: { en
 
 const DesktopPage = () => {
   const navigate = useNavigate();
-  const isLoggedIn = !!localStorage.getItem('token');
+  const { isAuthenticated: isLoggedIn, signOut } = useAuth();
   const [flippedIndices, setFlippedIndices] = useState<number[]>([]);
 
   const toggleFlip = (index: number) => {
@@ -572,11 +573,7 @@ const DesktopPage = () => {
             {isLoggedIn ? (
               <>
                 <button
-                  onClick={() => {
-                    localStorage.removeItem('token');
-                    localStorage.removeItem('username');
-                    window.location.reload();
-                  }}
+                  onClick={() => signOut()}
                   className="rounded-full bg-white px-4 py-2 font-semibold text-slate-900 hover:bg-white/90 shadow-sm"
                 >
                   Sign out

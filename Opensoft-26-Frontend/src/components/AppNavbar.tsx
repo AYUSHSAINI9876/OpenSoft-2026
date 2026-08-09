@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { ChevronDown, LogOut, Settings } from 'lucide-react'
-import { logout } from '../services/api'
+import { useAuth } from '../context/AuthContext'
 
 type NavbarTab = 'markets' | 'terminal' | 'portfolio' | 'settings'
 
@@ -20,8 +20,10 @@ const NAV_ITEMS: NavItem[] = [
 export default function AppNavbar({ activeTab }: { activeTab: NavbarTab }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const username = localStorage.getItem('username') || 'Trader'
-  const isAuthenticated = !!localStorage.getItem('token')
+  // Sourced from the auth context so the navbar re-renders on sign-in/out and
+  // on cross-tab session changes, rather than reading stale localStorage.
+  const { user, isAuthenticated, signOut } = useAuth()
+  const username = user?.username || 'Trader'
 
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
@@ -51,7 +53,7 @@ export default function AppNavbar({ activeTab }: { activeTab: NavbarTab }) {
   }, [])
 
   const handleSignOut = () => {
-    logout()
+    signOut()
     setMenuOpen(false)
     navigate('/')
   }

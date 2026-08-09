@@ -20,6 +20,7 @@ import type { PositionView } from '../hooks/usePortfolio'
 import * as api from '../services/api'
 import type { UserBotPnLRow } from '../services/api'
 import AppNavbar from './AppNavbar'
+import { useAuth } from '../context/AuthContext'
 
 /* ─── helpers ─── */
 const fmt = (n: number, decimals = 2) =>
@@ -298,8 +299,8 @@ function PositionRow({ pos, index, feed }: { pos: PositionView; index: number; f
 /* ═══════════════════════════════════════════ */
 export default function PortfolioPage() {
   const navigate = useNavigate()
-  const username = localStorage.getItem('username') || 'Trader'
-  const isLoggedIn = !!localStorage.getItem('token')
+  const { user, isAuthenticated: isLoggedIn } = useAuth()
+  const username = user?.username || 'Trader'
 
   const { snapshot, refresh, feed, loaded } = usePortfolio()
   const [botPnLRows, setBotPnLRows] = useState<UserBotPnLRow[]>([])

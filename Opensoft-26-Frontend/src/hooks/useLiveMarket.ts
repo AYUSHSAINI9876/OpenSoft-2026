@@ -10,6 +10,7 @@ import type { BookLevel, CandlePoint, MarketSnapshot, OpenOrder, TradeRequest } 
 import type { MarketFeed } from './useMockMarket'
 import { indianStocks, terminalUniverse } from '../data/marketData'
 import * as api from '../services/api'
+import { getToken } from '../services/session'
 import type { CandleRaw } from '../services/api'
 
 // ─── Public status type ─────────────────────────────────────────────────────
@@ -268,7 +269,7 @@ const getWsUrl = () => {
   } catch {
     wsBase = apiBase.replace(/^http/, 'ws')
   }
-  const token = localStorage.getItem('token')
+  const token = getToken()
   const wsUrl = new URL('/ws', wsBase)
   // Backend currently authenticates websocket via query param token.
   if (token) wsUrl.searchParams.set('token', token)

@@ -1,11 +1,20 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Mail, Lock, User, Globe, ArrowRight, ArrowLeft } from 'lucide-react';
-import { register } from '../services/api';
+import { Mail, User, Globe, ArrowRight, ArrowLeft, Loader2 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from './ui/Toast';
+import PasswordField from './ui/PasswordField';
+import { MIN_PASSWORD_LENGTH, isPasswordAcceptable } from '../utils/password';
 import { formatAuthError } from '../utils/errorFormatter';
+
+/** Mirrors the rule shown under the field: alphanumerics with single hyphens. */
+const USERNAME_PATTERN = /^[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const LoginPage = () => {
   const navigate = useNavigate();
+  const { signUp } = useAuth();
+  const toast = useToast();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [username, setUsername] = useState('');
@@ -31,19 +40,42 @@ const LoginPage = () => {
     return () => clearInterval(interval);
   }, []);
 
+  /** Returns the first problem found, or null when the form is submittable. */
+  const validate = (): string | null => {
+    const name = username.trim();
+    if (!EMAIL_PATTERN.test(email.trim())) return 'Please enter a valid email address.';
+    if (password.length < MIN_PASSWORD_LENGTH)
+      return `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`;
+    if (!isPasswordAcceptable(password))
+      return 'Please choose a stronger password — mix letters with numbers or symbols.';
+    if (name.length < 3) return 'Username must be at least 3 characters.';
+    if (!USERNAME_PATTERN.test(name))
+      return 'Username may only contain letters, numbers, and single hyphens (not at the start or end).';
+    return null;
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLoading) return; // guard against double-submit creating duplicate accounts
+
+    const problem = validate();
+    if (problem) {
+      setErrorMsg(problem);
+      return;
+    }
+
     setIsLoading(true);
     setErrorMsg('');
     try {
-      const res = await register(username, email, password);
+      const res = await signUp(username.trim(), email.trim(), password);
       if (res.success) {
+        toast.success('Account created', 'Your portfolio has been funded with $100,000 in simulated capital.');
         navigate('/portfolio', { replace: true });
       } else {
         setErrorMsg(formatAuthError(res.error || 'Registration failed'));
       }
     } catch (err: any) {
-      setErrorMsg(formatAuthError(err.message || 'An error occurred during registration'));
+      setErrorMsg(formatAuthError(err?.message || 'An error occurred during registration'));
     } finally {
       setIsLoading(false);
     }
@@ -184,66 +216,70 @@ const LoginPage = () => {
           <h2 className="text-2xl font-semibold mb-8">Sign up for Oak Capital</h2>
 
           {/* Form */}
-          <form onSubmit={handleLogin} className="space-y-5">
-            
+          <form onSubmit={handleLogin} className="space-y-5" noValidate>
+
             {errorMsg && (
-              <div className="bg-red-500/10 border border-red-500/50 text-red-500 text-sm p-3 rounded-md">
+              <div
+                role="alert"
+                className="bg-red-500/10 border border-red-500/50 text-red-400 text-sm p-3 rounded-md"
+              >
                 {errorMsg}
               </div>
             )}
 
             {/* Email */}
             <div className="space-y-1.5">
-              <label className="text-[13px] font-medium text-gray-200">Email<span className="text-red-500 ml-0.5">*</span></label>
+              <label htmlFor="signup-email" className="text-[13px] font-medium text-gray-200">
+                Email<span className="text-red-500 ml-0.5" aria-hidden="true">*</span>
+              </label>
               <div className="relative">
                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="h-4 w-4 text-gray-400" />
+                  <Mail className="h-4 w-4 text-gray-400" aria-hidden="true" />
                 </div>
                 <input
+                  id="signup-email"
+                  name="email"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="w-full bg-[#11141c] border border-white/10 rounded-md py-2 pl-9 pr-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                  placeholder="Email"
+                  autoComplete="email"
+                  autoFocus
+                  className="w-full bg-[#11141c] border border-white/10 rounded-md py-2 pl-9 pr-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-[#00C076] focus:border-[#00C076] transition-colors"
+                  placeholder="you@example.com"
                   required
                 />
               </div>
             </div>
 
             {/* Password */}
-            <div className="space-y-1.5">
-              <label className="text-[13px] font-medium text-gray-200">Password<span className="text-red-500 ml-0.5">*</span></label>
-              <div className="relative">
-                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Lock className="h-4 w-4 text-gray-400" />
-                </div>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-[#11141c] border border-white/10 rounded-md py-2 pl-9 pr-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                  placeholder="Password"
-                  required
-                />
-              </div>
-              <p className="text-[11px] text-gray-500 leading-tight pt-1">
-                Password should be at least 15 characters OR at least 8 characters including a number and a lowercase letter.
-              </p>
-            </div>
+            <PasswordField
+              value={password}
+              onChange={setPassword}
+              label="Password *"
+              placeholder="Create a strong password"
+              autoComplete="new-password"
+              name="new-password"
+              showStrength
+            />
 
             {/* Username */}
             <div className="space-y-1.5 pt-2">
-              <label className="text-[13px] font-medium text-gray-200">Username<span className="text-red-500 ml-0.5">*</span></label>
+              <label htmlFor="signup-username" className="text-[13px] font-medium text-gray-200">
+                Username<span className="text-red-500 ml-0.5" aria-hidden="true">*</span>
+              </label>
               <div className="relative">
                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <User className="h-4 w-4 text-gray-400" />
+                  <User className="h-4 w-4 text-gray-400" aria-hidden="true" />
                 </div>
                 <input
+                  id="signup-username"
+                  name="username"
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full bg-[#11141c] border border-white/10 rounded-md py-2 pl-9 pr-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                  placeholder="Username"
+                  autoComplete="username"
+                  className="w-full bg-[#11141c] border border-white/10 rounded-md py-2 pl-9 pr-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-[#00C076] focus:border-[#00C076] transition-colors"
+                  placeholder="john-doe"
                   required
                 />
               </div>
@@ -254,15 +290,20 @@ const LoginPage = () => {
 
             {/* Country/Region */}
             <div className="space-y-1.5 pt-2">
-              <label className="text-[13px] font-medium text-gray-200">Your Country/Region<span className="text-red-500 ml-0.5">*</span></label>
+              <label htmlFor="signup-country" className="text-[13px] font-medium text-gray-200">
+                Your Country/Region<span className="text-red-500 ml-0.5" aria-hidden="true">*</span>
+              </label>
               <div className="relative">
                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Globe className="h-4 w-4 text-gray-400" />
+                  <Globe className="h-4 w-4 text-gray-400" aria-hidden="true" />
                 </div>
                 <select
+                  id="signup-country"
+                  name="country"
                   value={country}
                   onChange={(e) => setCountry(e.target.value)}
-                  className="w-full bg-[#11141c] border border-white/10 rounded-md py-2 pl-9 pr-3 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-colors appearance-none"
+                  autoComplete="country-name"
+                  className="w-full bg-[#11141c] border border-white/10 rounded-md py-2 pl-9 pr-3 text-sm text-white focus:outline-none focus:ring-1 focus:ring-[#00C076] focus:border-[#00C076] transition-colors appearance-none"
                 >
                   <option value="India">India</option>
                   <option value="United States">United States</option>
@@ -281,11 +322,17 @@ const LoginPage = () => {
 
             {/* Email Preferences */}
             <div className="pt-2">
-              <label className="text-[13px] font-medium text-gray-200 block mb-2">Email preferences</label>
-              <div className="flex items-start gap-2">
-                <input type="checkbox" className="mt-1 bg-[#11141c] border-white/20 rounded text-blue-500 focus:ring-blue-500/50" defaultChecked />
+              <span className="text-[13px] font-medium text-gray-200 block mb-2">Email preferences</span>
+              <label htmlFor="signup-updates" className="flex items-start gap-2 cursor-pointer">
+                <input
+                  id="signup-updates"
+                  name="updates"
+                  type="checkbox"
+                  className="mt-1 bg-[#11141c] border-white/20 rounded text-[#00C076] focus:ring-[#00C076]/50"
+                  defaultChecked
+                />
                 <span className="text-[12px] text-gray-400 leading-tight">Receive occasional product updates and announcements.</span>
-              </div>
+              </label>
             </div>
 
             {/* Submit Button */}
@@ -293,12 +340,17 @@ const LoginPage = () => {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-gradient-to-r from-white to-[#00e68e] hover:shadow-[0_0_20px_rgba(0,230,142,0.4)] text-gray-900 border border-white/20 font-semibold py-2.5 rounded-md transition-all flex items-center justify-center gap-2"
+                className="w-full bg-gradient-to-r from-white to-[#00e68e] hover:shadow-[0_0_20px_rgba(0,230,142,0.4)] text-gray-900 border border-white/20 font-semibold py-2.5 rounded-md transition-all flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isLoading ? 'Creating account...' : (
-                    <>
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    Creating account…
+                  </>
+                ) : (
+                  <>
                     Create account <ArrowRight className="h-4 w-4" />
-                    </>
+                  </>
                 )}
               </button>
             </div>

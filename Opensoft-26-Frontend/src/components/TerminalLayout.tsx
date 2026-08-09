@@ -3,6 +3,7 @@ import type { ComponentType } from 'react'
 import { Briefcase, List, Eye, PieChart, Wallet, X, Bot, Crosshair, SlidersHorizontal, TrendingUp, House, Trophy, UserCircle, ChevronRight, Cpu } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import * as api from '../services/api'
+import { useAuth } from '../context/AuthContext'
 import { useLiveMarket } from '../hooks/useLiveMarket'
 import type { OrderNotice } from '../hooks/useLiveMarket'
 import { useMarketData } from '../hooks/useMarketData'
@@ -211,25 +212,8 @@ export default function TerminalLayout() {
   const bot = useBulbulBot(feed, selectedSymbol, { onRestoredSession: onBulbulSessionRestored, evalInterval: chartInterval })
   const [showBotEditor, setShowBotEditor] = useState(false)
 
-  const [isLoggedIn, setIsLoggedIn] = useState(() => {
-    return !!localStorage.getItem('token')
-  })
-
-  useEffect(() => {
-    const handleStorageChange = () => {
-      setIsLoggedIn(!!localStorage.getItem('token'))
-    }
-    window.addEventListener('storage', handleStorageChange)
-
-    // Custom event for same-tab logout
-    const handleAuthChange = () => handleStorageChange()
-    window.addEventListener('auth-change', handleAuthChange)
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange)
-      window.removeEventListener('auth-change', handleAuthChange)
-    }
-  }, [])
+  // The auth context already tracks storage + same-tab + cross-tab changes.
+  const { isAuthenticated: isLoggedIn } = useAuth()
 
   const [showSignInModal, setShowSignInModal] = useState(false)
   const [orderToast, setOrderToast] = useState<OrderNotice | null>(null)

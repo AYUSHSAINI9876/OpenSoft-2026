@@ -5,6 +5,7 @@ import { getRegistryEntry } from '../types/alphaBot'
 import { usePortfolio } from './usePortfolio'
 import type { MarketFeed } from './useMockMarket'
 import * as api from '../services/api'
+import { getToken } from '../services/session'
 
 // ─── Unique ID helper ──────────────────────────────────────
 let _uid = 0
@@ -486,7 +487,7 @@ export const useAlphaBot = (_feed: MarketFeed, symbol: string, options?: UseAlph
   }, [])
 
   useEffect(() => {
-    const token = localStorage.getItem('token')
+    const token = getToken()
     if (!token) return
     void refreshSavedStrategies()
   }, [refreshSavedStrategies])
@@ -497,7 +498,7 @@ export const useAlphaBot = (_feed: MarketFeed, symbol: string, options?: UseAlph
   useEffect(() => {
     if (sessionRestoredRef.current) return
     if (typeof window === 'undefined') return
-    const token = localStorage.getItem('token')
+    const token = getToken()
     if (!token) return
     const raw = localStorage.getItem(BULBUL_SESSION_KEY)
     if (!raw) return
